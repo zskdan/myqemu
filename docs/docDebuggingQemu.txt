@@ -1,0 +1,13 @@
+For Debugging Linux Kernel with qemu we must follow this steps :
+- Recompile kernel with support of kgdb, in submenu of Kernel Hacking.
+- make bzImage
+- transfering the new kernel image to the target
+- appending "kgdbwait" to kernel options.
+- starting qemu with options : 
+	* -s for attaching a gdbserver on tcp port 1234 
+	* -S for freezing qemu until we will be ready.
+- starting gdb with :
+	gdb ./vmlinux
+ 	b start_kernel
+	target remote tcp:localhost:1234
+	
