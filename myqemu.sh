@@ -30,6 +30,13 @@
 #     tunctl : uml-utilities.
 HDA_IMAGE="/media/FREECOM/qemu/Fedora2.img"
 nface="eth0"
+BRIDGE="NO"
+
+if [ `id -u` -ne 0 ]; then
+  echo "You should run the script as root, exiting."
+  exit 1
+fi
+
 
 do_usage()
 {
@@ -50,28 +57,34 @@ do_start()
     echo "image "$HDA_IMAGE" not found !!"
     exit 1  
   fi
-	sudo modprobe tun
-	sudo modprobe kqemu 
+	modprobe tun
+	modprobe kqemu 
 
 	USERID=`whoami`
-	iface=`sudo tunctl -b -u $USERID`
-	sudo echo $iface > /tmp/myqemu
-#	sudo ifconfig $nface down
+	iface=` tunctl -b -u $USERID`
+	echo $iface > /tmp/myqemu
 
 	qemu -s -S -k fr -hda $HDA_IMAGE -net nic,vlan=0 -net tap,vlan=0,ifname=$iface,script=no -m 512 -monitor unix:/tmp/myqemu.sock,server,nowait -serial unix:/tmp/myqemu-serial.sock,server,nowait -serial tcp:localhost:4444,server,nowait &
 	
-#	sudo brctl addbr br0
+  if [ "$BRIDGE" = "YES" ]; then 
+  	 ifconfig $nface down
+	   brctl addbr br0
 
-#	sudo brctl addif br0 $nface $iface
+  	 brctl addif br0 $nface $iface
+  
+	   ifconfig $nface up
+     ifconfig $iface up
 
-#	sudo ifconfig $nface up
-	sudo ifconfig $iface up
+	  # line added for OpenWide internal network
+  	 route del -net 192.168.3.0 netmask 255.255.255.0 dev $nface
 
-	# line added for OpenWide internal network
-#	sudo route del -net 192.168.3.0 netmask 255.255.255.0 dev $nface
-
-#	sudo killall dhclient 2> /dev/null
-#	sudo dhclient br0
+	   killall dhclient 2> /dev/null
+  	 dhclient br0
+  else
+     ifconfig $iface 192.168.4.1
+     echo 1 > /proc/sys/net/ipv4/ip_forward
+     iptables -t nat -A POSTROUTING -o $nface -j MASQUERADE
+  fi
 
 	echo "qemu starting done for monitoring use socat :"
 	echo "socat - unix-connect:/tmp/myqemu.sock "
@@ -81,13 +94,19 @@ do_stop()
 {
 	iface=`cat /tmp/myqemu`
 	killall qemu
-#	sudo ifconfig br0 down
-#	sudo brctl delbr br0
-	sudo ifconfig $iface down
-	sudo tunctl -d $iface &> /dev/null
-	sudo rm /tmp/myqemu
-#	sudo route add -net 192.168.3.0 netmask 255.255.255.0 dev $nface 
-#	sudo route add default gw 192.168.3.1
+  ifconfig $iface down
+  tunctl -d $iface &> /dev/null
+  if [ "$BRIDGE" = "YES" ]; then 
+	   ifconfig br0 down
+     brctl delbr br0
+  	 route add -net 192.168.3.0 netmask 255.255.255.0 dev $nface 
+	   route add default gw 192.168.3.1
+  else 
+     ifconfig $iface down
+     echo 1 > /proc/sys/net/ipv4/ip_forward
+     iptables -t nat -D POSTROUTING -o $nface -j MASQUERADE
+  fi
+  rm /tmp/myqemu
 }
 
 case "$1" in
